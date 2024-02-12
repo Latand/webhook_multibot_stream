@@ -6,7 +6,7 @@ from aiogram import Bot
 from fastapi import FastAPI
 from starlette.responses import JSONResponse
 
-from tgbot.config import load_config, Config
+from tgbot.config import Config, load_config
 
 app = FastAPI()
 log_level = logging.INFO
@@ -14,7 +14,6 @@ bl.basic_colorized_config(level=log_level)
 log = logging.getLogger(__name__)
 
 config: Config = load_config()
-# session_pool = create_session_pool(config.db)
 bot = Bot(token=config.tg_bot.token)
 
 

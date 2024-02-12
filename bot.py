@@ -1,19 +1,30 @@
-import asyncio
 import logging
 
 import betterlogging as bl
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.storage.redis import RedisStorage, DefaultKeyBuilder
+from aiogram.fsm.storage.redis import DefaultKeyBuilder, RedisStorage
+from aiogram.webhook.aiohttp_server import (
+    SimpleRequestHandler,
+    TokenBasedRequestHandler,
+    setup_application,
+)
+from aiohttp import web
 
-from tgbot.config import load_config, Config
-from tgbot.handlers import routers_list
+from infrastructure.some_api.api import HearthstoneApi
+from tgbot.config import Config, load_config
+from tgbot.handlers import main_router, routers_list
 from tgbot.middlewares.config import ConfigMiddleware
 from tgbot.services import broadcaster
 
 
-async def on_startup(bot: Bot, admin_ids: list[int]):
-    await broadcaster.broadcast(bot, admin_ids, "Бот був запущений")
+async def on_startup(bot: Bot, config: Config):
+    await broadcaster.broadcast(bot, config.tg_bot.admin_ids, "Бот був запущений")
+    await bot.set_webhook(
+        f"{config.webhook.webhook_url}{config.webhook.webhook_main_path}"
+    )
 
 
 def register_global_middlewares(dp: Dispatcher, config: Config, session_pool=None):
@@ -83,25 +94,54 @@ def get_storage(config):
         return MemoryStorage()
 
 
-async def main():
+def main():
     setup_logging()
 
     config = load_config(".env")
     storage = get_storage(config)
+    session = AiohttpSession()
+    hearthstone = HearthstoneApi(api_key=config.heartstone.api_key)
+    bot_settings = {"session": session, "parse_mode": ParseMode.HTML}
+    main_bot = Bot(token=config.tg_bot.token, **bot_settings)
 
-    bot = Bot(token=config.tg_bot.token, parse_mode="HTML")
-    dp = Dispatcher(storage=storage)
+    main_dispatcher = Dispatcher(storage=storage)
+    multibot_dispatcher = Dispatcher(storage=storage)
 
-    dp.include_routers(*routers_list)
+    main_dispatcher.include_routers(main_router)
+    multibot_dispatcher.include_routers(*routers_list)
 
-    register_global_middlewares(dp, config)
+    multibot_dispatcher.workflow_data.update(
+        hearthstone=hearthstone,
+    )
 
-    await on_startup(bot, config.tg_bot.admin_ids)
-    await dp.start_polling(bot)
+    register_global_middlewares(multibot_dispatcher, config)
+    register_global_middlewares(main_dispatcher, config)
+
+    main_requests_handler = SimpleRequestHandler(
+        main_dispatcher,
+        main_bot,
+    )
+
+    app = web.Application()
+    main_requests_handler.register(app, path=config.webhook.webhook_main_path)
+
+    TokenBasedRequestHandler(
+        multibot_dispatcher,
+        bot_settings=bot_settings,
+    ).register(app, path=config.webhook.webhook_other_bots_path)
+
+    main_dispatcher.startup.register(on_startup)
+    setup_application(app, main_dispatcher, bot=main_bot, config=config)
+    setup_application(app, multibot_dispatcher)
+    web.run_app(
+        app,
+        host=config.webhook.webapp_host,
+        port=config.webhook.webapp_port,
+    )
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()
     except (KeyboardInterrupt, SystemExit):
         logging.error("Бот був вимкнений!")
