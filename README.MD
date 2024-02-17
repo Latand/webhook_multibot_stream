@@ -6,4 +6,4 @@
 Це код до стріму, який проводили на [каналі BotfatherDEV](https://www.youtube.com/watch?v=M8mdtSauOJA)
 
 ## Хочете навчитись писати ботів?
-Навчитись писати Telegram ботів можна на платформі [BotFather](botfather.dev/?utm_source=github&utm_medium=stream_repository)
+Навчитись писати Telegram ботів можна на платформі [BotFatherDEV](botfather.dev/?utm_source=github&utm_medium=stream_repository)
